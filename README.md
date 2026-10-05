@@ -14,7 +14,7 @@ Counterfeit cards report a false size to the OS. They accept writes past their r
 |---|---|---|
 | **Quick** | Yes (erases card) | Splits card into 500 MB regions. Writes unique 5 MB probes at start, middle and end of each region plus the card's last sectors, then reads back in shuffled order and verifies. Minutes. |
 | **Empty-space** | No | Fills a pre-allocated file in free space, maps it to physical offsets, writes a 5 MB chunk near each 500 MB region, verifies via SHA-256, deletes the file. Existing files untouched. Coverage limited by free space. |
-| **Confidence** | No | Non-destructive, stoppable any time. Writes 10 MB chunks into free space in a fixed spread order (front, back, middle, then bisecting the gaps, never repeating a position), reads back and SHA-256 verifies each. Shows coverage %, ETA (hours) to a target such as 2%, and stops immediately on the first hash failure. Needs free space; unreachable regions are reported. |
+| **Confidence** | No | Non-destructive, stoppable any time. Writes batches of 32 x 10 MB chunks into free space in a spread order (front, back, middle, then bisecting the gaps), verifies each batch by SHA-256, keeps the test file, and re-verifies the first batch every 10 batches to prove there is no wrap-around. Shows coverage %, ETA hours to a target such as 2%, estimates real capacity, and stops on the first failure. Needs free space; unreachable regions are reported. `sdchk cleanup` removes test files. |
 | **Full** | Yes (erases card) | Writes unique data to every sector start-to-end, then reads everything back. Gold standard; slow (hours on big cards). |
 
 Common to all modes:
@@ -45,7 +45,8 @@ sdchk list
 sdchk quick  --disk 3
 sdchk full   --disk 3 --out results\
 sdchk empty  --drive F:
-sdchk confidence --drive F: --target 2%   # Ctrl+C or Stop button ends it; report shows coverage reached
+sdchk confidence --drive F: --target 2%   # Ctrl+C or Stop ends it; report shows coverage reached
+sdchk cleanup --drive F:                 # delete kept test files
 sdchk-gui.exe
 ```
 
