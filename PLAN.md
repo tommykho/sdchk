@@ -10,7 +10,7 @@
 
 ## Confidence mode (added)
 - Non-destructive, uses the same free-space file mapping as Empty-space; user can Stop any time (button / Ctrl+C) and still gets a full report.
-- Unit = 10 MB chunk. Order = stratified random without repeats: one chunk per 500 MB region first, then further passes, so any early stop is spread across the whole card.
+- Unit = 10 MB chunk. Order (deterministic, no repeats): **front, back, middle, then front-quarter, back-quarter, and so on** by recursive bisection of the 500 MB regions: `0, N-1, N/2, N/4, 3N/4, N/8, 3N/8, 5N/8, 7N/8, ...` (N = region count). Each pass over all regions uses a different random 10 MB slot inside the region, so later passes cover new space. Any early stop is spread over the whole card, with the ends and middle tested first (fakes typically fail past their real size, which the back probe catches immediately).
 - Each chunk: write unique data, flush, wait for a different region, then read back and SHA-256 compare (read-back delayed so the card cannot serve it from its cache). **First mismatch, read error or short write stops the run immediately** with verdict FAIL, offset and expected/actual hash.
 - Live display: coverage % = verified bytes / claimed capacity; measured MB/s; ETA hours to target (`remaining = target% x capacity - verified`, divided by rolling throughput) and to 100%.
 - Report states the honest meaning: coverage is the tested fraction of the claimed address space. Also shows detection probability for a defect covering fraction f: `1-(1-f)^n` after n chunks (e.g. a 16 GB card sold as 512 GB is 97% fake, so a few chunks catch it). PASS is only "no failure found in X%", never "card is good".
