@@ -2,13 +2,30 @@
 
 ## Decisions (from interview)
 - Windows 11, C#/.NET 8, GUI + CLI, GPL-3.0-or-later, source on GitHub.
-- Modes: Quick (destructive, region probes), Empty-space (non-destructive), Full (destructive).
+- Modes: **New Card Check (default: size + speed + bad sectors)**, Quick (destructive, region probes), Empty-space and Confidence (non-destructive estimates for used cards), Full (destructive).
 - Region = 500 MB (configurable). Probe/chunk = 5 MB. Quick probes: start, middle, end of each region + last sectors of card.
 - Hash: SHA-256 per chunk (evidence) plus regeneration compare.
 - Speed grading with class estimate. Removable-only, typed confirmation.
 - Output: `result.html` + `result.log`, shown inside the GUI. GUI block map shows writes landing across the card.
 
-## Confidence mode (added)
+## Primary use case: new card check (default workflow)
+User buys a new card and wants to know: 1) wrong size, 2) wrong speed, 3) bad sectors/low-quality flash. New cards hold no data, so destructive raw testing is fine and is the main path.
+
+**New Card Check** (GUI default; `sdchk newcard --disk N --claimed-class U3`):
+1. **Size fast screen (1-2 min)**: far probes + alias scan (see Stage 0). Fail fast with real-size estimate; stop unless user continues.
+2. **Speed**: sequential write/read MB/s (min/avg/max, sustained after the write cache fills, 2-4 GB run) compared with the minimum for the class the user says is printed on the card (C10 10, U1 10, U3 30, V30 30 MB/s sustained write). Slow-block percentile flags. Random 4K (A1/A2) is later.
+3. **Bad sectors**: full write pass then full verify pass over the whole card (SHA-256/regenerate), per-region failure map, retry/error counts; optional second pass.
+4. Verdict per item: SIZE / SPEED / QUALITY, each PASS / FAIL / SUSPECT, in `result.html` + `result.log`.
+
+**Confidence mode is an ESTIMATE for used cards**, not proof. Max achievable confidence = free-space fraction (a card 50% full tops out at 50%); the UI and report state this cap. Existing files are not tested by it; the user can check those files themselves. Optional read-only scan of the used area to report read errors.
+
+## Prior art reviewed (read in this session)
+- **SDCheck** (Apache-2.0, 137 lines C++, POSIX only): seeds two MT19937-64 generators identically; writes 64 KiB blocks sequentially from the start until a write error, takes bytes written as the apparent size, then reads all back and compares against the second generator (constant memory). Weaknesses: relies on write errors, so fakes that silently discard are measured only by compares; always a full sequential pass (slow); no speed/quality reporting; Linux only; no per-run safeguards.
+- **MediaTester** (GPL-3.0, C#, Windows GUI+CLI, `MediaTesterLib`): file based. 1 GiB files of 8 MiB blocks in a `MediaTester` folder, `FILE_FLAG_NO_BUFFERING | WriteThrough`, block data from `System.Random(seed = absolute block index)`. After each file it immediately reads the first and last block (QuickTestAfterEachFile), on failure verifies the whole file to find the first failing byte, stops on failure, then does a full verify pass. Options: MaxBytesToTest, delete temp files, save results file to the media; per-block write/read speed. Weaknesses: sequential fill so a wrap-around fake is only caught in the final verify (hours later); the pattern depends only on block index, so leftover files from an earlier run can pass; cannot jump to the end of the card; no alias detection; no real-size estimate beyond first failing byte.
+- **What we keep**: unbuffered/write-through I/O, quick reads while writing, stop on failure, first-failing-byte, per-block speed, results file. **What we add**: per-run seed + offset in every sector, end-first/spread probes, alias scan for wrap fakes, real-size estimate, speed grading vs class, used-card estimate mode, block-map GUI.
+- **Licensing**: both licenses (GPL-3.0, Apache-2.0) are compatible with our GPL-3.0-or-later. Code reuse is allowed with attribution and license notices kept; default is still independent implementation.
+
+## Confidence mode (used cards, estimate only)
 - Non-destructive by design, stoppable any time (button / Ctrl+C), always emits a report.
 - **Test point** = one **10 MB file** (`sdchk_<seed>_<n>.bin`) written into free space; ~1 per 500 MB region (512 GB = ~1024 points). **Batch** = 32 points (configurable). Files are kept until Clean up (`sdchk cleanup` / GUI button), never auto-deleted.
 - **Placement**: create the file preallocated, then `FSCTL_MOVE_FILE` its clusters to a free LCN in the target region, then write data. Fallback if the filesystem refuses: carve chunks out of reserve file(s) (<= 2 GB each, FAT32-safe) mapped with `FSCTL_GET_RETRIEVAL_POINTERS`. Validate on real hardware (M9); report lists regions it could not reach.
@@ -40,7 +57,7 @@
 2. Card readers sometimes present as "fixed" disks. v1 lists removable only; add `--allow-fixed` later if needed.
 3. Speed class is an estimate from sequential tests (C/U/V); A1/A2 random I/O is out of v1.
 4. GUI report view uses WebView2 (Evergreen runtime ships with Win11).
-5. Reference repos are not read in this session (outside repo scope); algorithms are implemented from the technique, not copied.
+5. Speed class thresholds use SD Association sustained-write minimums; user picks the printed class in the GUI/CLI.
 
 ## Architecture
 ```
