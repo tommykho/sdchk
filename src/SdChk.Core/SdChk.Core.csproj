@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>SdChk.Core</RootNamespace>
+    <AssemblyName>SdChk.Core</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SdChk.Tests" />
+  </ItemGroup>
+</Project>

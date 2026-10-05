@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SdChk.Cli</RootNamespace>
+    <AssemblyName>sdchk</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SdChk.Core\SdChk.Core.csproj" />
+    <ProjectReference Include="..\SdChk.Windows\SdChk.Windows.csproj" />
+  </ItemGroup>
+</Project>

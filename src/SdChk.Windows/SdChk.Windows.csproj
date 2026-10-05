@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>SdChk.Windows</RootNamespace>
+    <AssemblyName>SdChk.Windows</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SdChk.Core\SdChk.Core.csproj" />
+  </ItemGroup>
+</Project>

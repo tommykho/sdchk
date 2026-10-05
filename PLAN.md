@@ -1,5 +1,27 @@
 # PLAN
 
+## Stage 1 proof of concept (current): SIZE and SPEED only
+Decided after the prior-art review: build a focused Windows tool, defer the rest.
+
+Delivered in Stage 1:
+- `SdChk.Core`: `IBlockDevice`, unique per-run block pattern (offset header + salted noise, states Good/Changed/Corrupted/Blank/Unreadable), `SizeProbe`, `SpeedTest`, `ReportWriter` (result.html + result.log with SHA-256), `FakeBlockDevice` (genuine, wrap, discard, garbage, write-error, write cache, bad ranges, speed model, virtual clock), `FileBlockDevice`.
+- `SizeProbe`: front/back/middle/bisection + power-of-two probes, cache flush, random-order verify, large-cache confirmation pass, whole-space alias scan, real-size estimate (gcd of wrap distances, or bisection for dropped writes). 31 unit tests including non power-of-two wraps (31.9 GB), cached fakes and free-space fragmentation.
+- `SpeedTest`: sustained sequential write/read at start/middle/end, per-second series, drop detection, 4 KiB random Q1, class grading on p5/median, A1/A2 hint.
+- `SdChk.Windows` (unverified on hardware): free-space-only raw writes through the locked volume, cluster-mapping calibration file, bitmap-based extents, hard write guard, read-only `inspect`.
+- `sdchk` CLI with the risk disclaimer and typed confirmation.
+
+Stage 1 acceptance (needs a real Windows machine and cards):
+1. `sdchk inspect --drive X:` passes on FAT32, exFAT and NTFS cards.
+2. `sdchk check` PASS on a known-genuine card, FAIL with the right real size on a known-fake card.
+3. Compare size result with H2testw/f3 and speed with CrystalDiskMark on the same card.
+4. Tune thresholds (probe size, scan stride, confirm size) from those runs.
+
+Deferred: full bad-sector scan (Stage 2), GUI with block map, Confidence/Empty-space modes, A1/A2 grading, real-size partition fix.
+
+---
+
+# Original plan (full scope, kept for later stages)
+
 ## Decisions (from interview)
 - Windows 11, C#/.NET 8, GUI + CLI, GPL-3.0-or-later, source on GitHub.
 - Modes: **New Card Check (default: size + speed + bad sectors)**, Quick (destructive, region probes), Empty-space and Confidence (non-destructive estimates for used cards), Full (destructive).

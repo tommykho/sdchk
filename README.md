@@ -1,68 +1,76 @@
 # sdchk
 
-Open-source microSD / flash-drive checker for **Windows 11**. Detects fake capacity (e.g. a 16 GB card relabelled 512 GB), defective sectors and slow/low-grade dies, and produces evidence you can attach to a refund or fraud dispute.
+Open-source microSD / flash-drive checker for **Windows 11**. Finds fake capacity (a 16 GB card relabelled 512 GB) and slow cards, and writes an evidence report you can attach to a refund or fraud dispute.
 
-> Status: **planning**. See [PLAN.md](PLAN.md). Nothing below is implemented yet.
+> **Status: Stage 1 proof of concept. Scope is SIZE and SPEED only.** The size and speed logic is unit-tested against simulated fake cards on Linux. The Windows drive backend has **not yet been run on real hardware**: start with `sdchk inspect`.
 
-## Why
+## WARNING - read before use
 
-Counterfeit cards report a false size to the OS. They accept writes past their real capacity, then wrap around or discard the data. Only writing unique data across the whole address range and reading it back proves the real size.
+**This test writes test data into the free space of your card. If the card is FAKE and wraps around (it reports more capacity than it really has), these writes can OVERWRITE AND DESTROY EXISTING FILES. BACK UP ALL FILES FIRST. Use at your own risk: the software is provided without warranty of any kind (GPL-3.0-or-later), and the authors are not liable for data loss.**
 
-## Features (v1 target)
+The CLI shows this text and requires you to type `I UNDERSTAND` (or pass `--accept-risk`). The same text is in every report.
 
-| Mode | Destructive | What it does |
-|---|---|---|
-| **New Card Check** (default) | Yes (new card) | Answers three questions: wrong size? wrong speed? bad sectors? Size fast screen (1-2 min), then sustained speed test vs the printed class, then full write + verify of every sector. Verdict per item: SIZE / SPEED / QUALITY. |
-| **Quick** | Yes (erases card) | Splits card into 500 MB regions. Writes unique 5 MB probes at start, middle and end of each region plus the card's last sectors, then reads back in shuffled order and verifies. Minutes. |
-| **Empty-space** | No | Fills a pre-allocated file in free space, maps it to physical offsets, writes a 5 MB chunk near each 500 MB region, verifies via SHA-256, deletes the file. Existing files untouched. Coverage limited by free space. |
-| **Confidence** (estimate only, used cards) | No* | ESTIMATE only: max confidence equals the free-space fraction (a half-full card caps at 50%); existing files are not tested. Non-destructive on genuine cards, stoppable any time. **Fast screen first (~1-2 min):** writes 10 MB files at 0, the card end and power-of-two marks, verifies them, then scans the whole card for data that landed in the wrong place (wrap-around), which exposes "512 GB that is really 32 GB" and estimates the real size. Then writes batches of 32 files in a spread order (front, back, middle, bisection), verifies each batch by SHA-256, keeps the files, and re-verifies batch 1 every 10 batches. Shows coverage %, ETA to a target such as 2%, stops on first failure. `sdchk cleanup` removes test files. *On a wrap-around fake a write can overwrite existing files: back up first. |
-| **Full** | Yes (erases card) | Writes unique data to every sector start-to-end, then reads everything back. Gold standard; slow (hours on big cards). |
+## What it checks (Stage 1)
 
-Common to all modes:
-- Live **GUI block map**: every 500 MB region shows pending / written / verified / failed so you can see data landing across the whole card.
-- **Speed grading** (CrystalDiskMark-style methodology): unbuffered random-data I/O, 1 MiB sequential read/write at the start, middle and end of the card, sustained 4 GB writes graded on min/median rather than peak, 4 KiB random Q1 read/write IOPS, slow-block detection, error/retry counts, and an estimated speed class (C10/U1/U3/V30; A1/A2 indicative only).
-- **Verdict**: claimed vs real capacity, first bad offset, bad-block list, speed result.
-- **Output**: `result.html` and `result.log`, viewable inside the GUI. HTML includes tool version, timestamp, device model/serial, claimed/real size, and a SHA-256 of the log.
-- **GUI + CLI** sharing one core library.
+**1. Size** - fast capacity check, a few minutes even for 512 GB:
+- Writes unique 8 MiB probes at the front, back, middle, by bisection, and at power-of-two offsets (the f3probe idea).
+- Writes extra data to push the probes out of the card's write cache, then reads every probe back in shuffled order. A second, larger cache flush and re-verify catches fakes with big caches.
+- Scans the whole address space (one block every 4 MiB) for data that landed in the wrong place. Any hit proves wrap-around and gives the real size.
+- If data is simply dropped (zeros, noise or write errors), bisects to the real capacity (+/- 8 MiB).
+- Verdict: PASS (sampled; cannot rule out scattered bad sectors), FAIL (real size reported), SUSPECT or INCONCLUSIVE.
 
-## How detection works
+**2. Speed** - graded the way speed classes are defined:
+- Sustained sequential write and read of 1 GiB (use `--seq-mib 4096` for a final grade) at the start, middle and end of the card, with MB/s per second and detection of the "fast cache, then slow" drop.
+- Graded on the 5th percentile and median, not peak, against the class you say is printed on the card (C10, U1, U3, V30 ...).
+- 4 KiB random write/read IOPS at queue depth 1, with an indicative A1/A2 hint.
+- Skipped automatically if the capacity is fake.
 
-1. Every 4 KiB sector gets a header (magic, run seed, absolute offset) plus pseudo-random payload derived from `seed + offset`. No two sectors are identical, so wrap-around and aliasing are caught.
-2. Write phase completes **before** the read phase, so wrapped overwrites of early data are exposed.
-3. Direct, unbuffered I/O (`FILE_FLAG_NO_BUFFERING | WRITE_THROUGH`) on sector-aligned buffers; the OS cache cannot hide failures.
-4. Real capacity = end of the largest contiguous verified range from offset 0.
+Not in Stage 1: full-card bad-sector scan, GUI, used-card "confidence" mode. See [PLAN.md](PLAN.md).
 
-## Safety
+## Usage
 
-- Lists **removable** drives only; refuses system/boot disks.
-- Destructive modes require typing the drive letter/serial to confirm.
-- Needs Administrator (raw disk access).
+```
+sdchk list                                   # drives (Windows)
+sdchk inspect --drive F:                     # read-only safety inspection, run this first
+sdchk check --drive F: --class U3            # size + speed (Windows, run as Administrator)
+sdchk check --drive F: --size-only
+sdchk check --image card.img --image-gib 4   # on a disk-image file, any OS
+sdchk simulate                               # list simulated fake cards
+sdchk check --simulate wrap-32-of-512 --class U3
+```
 
-## Build and run (planned)
+Options: `--class`, `--size-only`, `--speed-only`, `--probe-mib`, `--seq-mib`, `--random-ops`, `--out DIR`, `--allow-fixed`, `--accept-risk`.
+Exit code: 0 all pass, 2 any fail, 3 suspect/inconclusive, 1 error.
+
+Output: `results\result.html` (self-contained, with a speed chart and the log's SHA-256) and `results\result.log`.
+
+## How it touches the card (Windows backend)
+
+- Lists only removable drives (use `--allow-fixed` for a card reader Windows calls fixed); never the system drive.
+- Locks the volume, reads the file-system free-space bitmap and writes **only to clusters the file system reports as free**, below the file system, so probes land at known physical positions. A hard guard refuses any write outside free space.
+- Before trusting the bitmap it creates a 1 MiB calibration file and proves where clusters live on disk (NTFS, exFAT, FAT32). If it cannot prove it, it stops without writing. The temporary file is removed afterwards.
+- Everything is written unbuffered with write-through.
+- On a genuine card your files are untouched. On a fake wrap-around card a "free" cluster can physically be someone else's data: that is the warning above.
+
+## Build
 
 ```
 dotnet build -c Release
-sdchk list
-sdchk quick  --disk 3
-sdchk full   --disk 3 --out results\
-sdchk empty  --drive F:
-sdchk confidence --drive F: --target 2%   # Ctrl+C or Stop ends it; report shows coverage reached
-sdchk cleanup --drive F:                 # delete kept test files
-sdchk-gui.exe
+dotnet test
+dotnet publish src/SdChk.Cli -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
 
-Requires Windows 11 and .NET 8 (self-contained single-file release planned).
+Requires .NET 8 SDK. Layout: `src/SdChk.Core` (engine, simulated cards, reports), `src/SdChk.Windows` (drive backend), `src/SdChk.Cli`, `tests/SdChk.Tests`.
 
 ## Prior art
 
-- [ulikoehler/SDCheck](https://github.com/ulikoehler/SDCheck)
-- [dkrahmer/MediaTester](https://github.com/dkrahmer/MediaTester)
-- [CrystalDewWorld/CrystalDiskMark-Latest](https://github.com/CrystalDewWorld/CrystalDiskMark-Latest) (MIT): speed-test methodology
-- [AltraMayor/f3](https://github.com/AltraMayor/f3) (GPL-3.0): f3probe wrap/sampling/cache ideas, ok/corrupted/changed/overwritten states
-- [c0xc/CapacityTester](https://github.com/c0xc/CapacityTester) (GPL-3.0): raw 1 GB-step test, per-position ids, cache reopen lessons
-- H2testw (concept reference)
+- [ulikoehler/SDCheck](https://github.com/ulikoehler/SDCheck) (Apache-2.0): sequential fill and compare with a second seeded RNG.
+- [dkrahmer/MediaTester](https://github.com/dkrahmer/MediaTester) (GPL-3.0): unbuffered 8 MiB blocks, quick read of first/last block per file.
+- [AltraMayor/f3](https://github.com/AltraMayor/f3) (GPL-3.0): f3probe wrap/sampling/cache ideas, ok/corrupted/changed/overwritten block states.
+- [c0xc/CapacityTester](https://github.com/c0xc/CapacityTester) (GPL-3.0): raw 1 GB-step test, per-position ids, cache reopen lessons.
+- [CrystalDewWorld/CrystalDiskMark-Latest](https://github.com/CrystalDewWorld/CrystalDiskMark-Latest) (MIT): speed-test methodology.
 
-SDCheck (Apache-2.0) writes sequentially until errors then compares against a second identically seeded RNG. MediaTester (GPL-3.0) writes 1 GiB files in unbuffered 8 MiB blocks and quick-reads the first/last block of each file. sdchk adds per-run seeds with embedded offsets, end-first probing, wrap-around (alias) detection, real-size estimation, speed grading and a used-card estimate mode. Both licenses are compatible with GPL-3.0-or-later; credit them if any code is reused.
+sdchk is an independent implementation of these techniques. Corroborate a dispute with a well-known tool (H2testw or f3) as well.
 
 ## License
 
