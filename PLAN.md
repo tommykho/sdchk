@@ -8,6 +8,15 @@
 - Speed grading with class estimate. Removable-only, typed confirmation.
 - Output: `result.html` + `result.log`, shown inside the GUI. GUI block map shows writes landing across the card.
 
+## Confidence mode (added)
+- Non-destructive, uses the same free-space file mapping as Empty-space; user can Stop any time (button / Ctrl+C) and still gets a full report.
+- Unit = 10 MB chunk. Order = stratified random without repeats: one chunk per 500 MB region first, then further passes, so any early stop is spread across the whole card.
+- Each chunk: write unique data, flush, wait for a different region, then read back and SHA-256 compare (read-back delayed so the card cannot serve it from its cache). **First mismatch, read error or short write stops the run immediately** with verdict FAIL, offset and expected/actual hash.
+- Live display: coverage % = verified bytes / claimed capacity; measured MB/s; ETA hours to target (`remaining = target% x capacity - verified`, divided by rolling throughput) and to 100%.
+- Report states the honest meaning: coverage is the tested fraction of the claimed address space. Also shows detection probability for a defect covering fraction f: `1-(1-f)^n` after n chunks (e.g. a 16 GB card sold as 512 GB is 97% fake, so a few chunks catch it). PASS is only "no failure found in X%", never "card is good".
+- Limit: only free clusters reachable; if free space is small, coverage cap is shown up front.
+- Milestone: new M6b after Empty-space (shares mapping code); tests via FakeBlockDevice (wrap fake must fail within first few chunks; genuine must pass; Stop mid-run produces valid report).
+
 ## Assumptions to confirm (change if wrong)
 1. "Empty-space" cannot pick physical offsets via normal files, so: pre-allocate one large file in free space, map extents with `FSCTL_GET_RETRIEVAL_POINTERS`, write 5 MB chunks only where extents fall near each 500 MB boundary, verify, delete. Coverage depends on free-space layout; report shows which regions were reachable.
 2. Card readers sometimes present as "fixed" disks. v1 lists removable only; add `--allow-fixed` later if needed.
