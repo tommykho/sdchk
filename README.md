@@ -58,7 +58,9 @@ Requires Windows 11 and .NET 8 (self-contained single-file release planned).
 - [ulikoehler/SDCheck](https://github.com/ulikoehler/SDCheck)
 - [dkrahmer/MediaTester](https://github.com/dkrahmer/MediaTester)
 - [CrystalDewWorld/CrystalDiskMark-Latest](https://github.com/CrystalDewWorld/CrystalDiskMark-Latest) (MIT): speed-test methodology
-- H2testw, F3 (concept references)
+- [AltraMayor/f3](https://github.com/AltraMayor/f3) (GPL-3.0): f3probe wrap/sampling/cache ideas, ok/corrupted/changed/overwritten states
+- [c0xc/CapacityTester](https://github.com/c0xc/CapacityTester) (GPL-3.0): raw 1 GB-step test, per-position ids, cache reopen lessons
+- H2testw (concept reference)
 
 SDCheck (Apache-2.0) writes sequentially until errors then compares against a second identically seeded RNG. MediaTester (GPL-3.0) writes 1 GiB files in unbuffered 8 MiB blocks and quick-reads the first/last block of each file. sdchk adds per-run seeds with embedded offsets, end-first probing, wrap-around (alias) detection, real-size estimation, speed grading and a used-card estimate mode. Both licenses are compatible with GPL-3.0-or-later; credit them if any code is reused.
 

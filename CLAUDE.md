@@ -13,12 +13,12 @@ Project: **sdchk**, a Windows 11 microSD fake-capacity / defect / speed checker.
 
 ## Non-negotiable rules
 - Destructive operations: removable disks only; never the system/boot disk; require explicit typed confirmation; check disk number, size and serial immediately before the first write. Default to refusal when unsure.
-- Always unbuffered, sector-aligned I/O; write phase fully completes before read phase.
+- Always unbuffered, sector-aligned I/O; write phase fully completes (flush, reopen handle, overwhelm write cache) before the read phase; verification of probes uses random-order small reads, not just sequential.
 - Per-sector data must be unique (seed + absolute offset); never reuse a repeating pattern.
 - Core logic must be testable via `FakeBlockDevice` simulating: genuine card, wrap-around fake, silently-discarding fake, bad sectors, slow regions, read errors.
 - Confidence mode: Stage 0 fast screen (far probes + alias scan) before batches; 10 MB files, spread order, batches of 32 verified after writing, Batch 1 rechecked every 10 batches, files kept until explicit cleanup; stop on first failure, honor Stop, always emit a report; coverage honest (tested fraction), never "card is good"; warn that non-destructive modes can overwrite data on fakes.
 - Report outputs: `result.html` + `result.log`. Never claim a verdict stronger than the evidence (e.g. Quick test cannot prove every sector good; say "sampled").
-- SDCheck (Apache-2.0) and MediaTester (GPL-3.0) are license-compatible; independent implementation is the default, and any reused code needs attribution and kept notices.
+- SDCheck (Apache-2.0), MediaTester, f3, CapacityTester (GPL-3.0) and CrystalDiskMark (MIT) are license-compatible; independent implementation is the default, any reused code needs attribution, kept notices and a check of its per-file GPL "only" vs "or later" header.
 - Primary workflow is New Card Check (size, speed, bad sectors). Confidence mode is an estimate for used cards; its maximum confidence is the free-space fraction, and wording must say so.
 
 ## Conventions
