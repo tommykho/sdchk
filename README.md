@@ -20,7 +20,7 @@ Counterfeit cards report a false size to the OS. They accept writes past their r
 
 Common to all modes:
 - Live **GUI block map**: every 500 MB region shows pending / written / verified / failed so you can see data landing across the whole card.
-- **Speed grading**: sequential read/write MB/s (min/avg/max), slow-block detection, error/retry counts, estimated speed class (C4/C10/U1/U3/V30). Estimate only; random I/O (A1/A2) not tested.
+- **Speed grading** (CrystalDiskMark-style methodology): unbuffered random-data I/O, 1 MiB sequential read/write at the start, middle and end of the card, sustained 4 GB writes graded on min/median rather than peak, 4 KiB random Q1 read/write IOPS, slow-block detection, error/retry counts, and an estimated speed class (C10/U1/U3/V30; A1/A2 indicative only).
 - **Verdict**: claimed vs real capacity, first bad offset, bad-block list, speed result.
 - **Output**: `result.html` and `result.log`, viewable inside the GUI. HTML includes tool version, timestamp, device model/serial, claimed/real size, and a SHA-256 of the log.
 - **GUI + CLI** sharing one core library.
@@ -57,6 +57,7 @@ Requires Windows 11 and .NET 8 (self-contained single-file release planned).
 
 - [ulikoehler/SDCheck](https://github.com/ulikoehler/SDCheck)
 - [dkrahmer/MediaTester](https://github.com/dkrahmer/MediaTester)
+- [CrystalDewWorld/CrystalDiskMark-Latest](https://github.com/CrystalDewWorld/CrystalDiskMark-Latest) (MIT): speed-test methodology
 - H2testw, F3 (concept references)
 
 SDCheck (Apache-2.0) writes sequentially until errors then compares against a second identically seeded RNG. MediaTester (GPL-3.0) writes 1 GiB files in unbuffered 8 MiB blocks and quick-reads the first/last block of each file. sdchk adds per-run seeds with embedded offsets, end-first probing, wrap-around (alias) detection, real-size estimation, speed grading and a used-card estimate mode. Both licenses are compatible with GPL-3.0-or-later; credit them if any code is reused.
