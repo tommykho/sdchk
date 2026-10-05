@@ -9,26 +9,34 @@
 - Output: `result.html` + `result.log`, shown inside the GUI. GUI block map shows writes landing across the card.
 
 ## Confidence mode (added)
-- Non-destructive, stoppable any time (button / Ctrl+C), always emits a report. Uses the free-space file mapping shared with Empty-space.
-- **Chunk** = 10 MB. **Test point** = one chunk; a card gets ~1 point per 500 MB region (512 GB = ~1024 points). **Batch** = 32 points (configurable).
-- **Order** (deterministic, no repeats): front, back, middle, then recursive bisection of the regions `0, N-1, N/2, N/4, 3N/4, N/8, 3N/8, 5N/8, 7N/8, ...`, plus probes just before/after common real sizes (4/8/16/32/64/128/256 GB) that fall inside the claimed size. The first 32 points of this order are **Batch 1** (the wrap-around reference set); later passes use a different random 10 MB slot per region.
-- **Write first, verify later** (a wrap fake reads back its own fresh write fine; it fails only after the aliased location is overwritten):
-  1. Write a whole batch of 32 chunks in different regions. No read yet.
-  2. Read back and SHA-256 verify that batch once.
-  3. Do not delete the test file; continue with the next batch.
-  4. After every 10 batches (configurable), re-read and re-verify Batch 1. A mismatch means later writes overwrote it: wrap-around.
-  5. Stop or finish: final sweep re-verifies every point in reverse order.
-- Each sector embeds seed + absolute offset, so a bad read reports "data from offset A found at B" (real size = B - A) or "zeros/0xFF" (discarding fake).
-- **First mismatch, read error or short write stops the run** with FAIL. Then a short bisect between last good and first bad offset estimates the real capacity ("claimed 512 GB, real ~16 GB").
-- Test file(s) are kept for the run and after Stop; they hold the card's free space. A **Clean up** button / `sdchk cleanup` deletes them. Never auto-deleted.
-- Live display: coverage % = verified bytes / claimed capacity; MB/s; ETA hours to target (`(target% x capacity - verified) / rolling throughput`) and to 100%; batch number; last Batch-1 recheck result.
-- Honest wording: PASS = "no failure found in X% of the card"; report shows detection probability `1-(1-f)^n`. Coverage is capped by free space (shown up front, with unreachable regions listed).
-- Separate **Speed test** (2-4 GB sequential write in free space, MB/s over time) because 10 MB chunks cannot expose the card's write-cache drop. Per-chunk MB/s still logged; slow = far below median.
-- Tests (FakeBlockDevice): wrap fake caught by the Batch-1 recheck and reports correct real size; discard fake caught at first verify; genuine passes; Stop mid-batch gives a valid report; planner order unit-tested.
+- Non-destructive by design, stoppable any time (button / Ctrl+C), always emits a report.
+- **Test point** = one **10 MB file** (`sdchk_<seed>_<n>.bin`) written into free space; ~1 per 500 MB region (512 GB = ~1024 points). **Batch** = 32 points (configurable). Files are kept until Clean up (`sdchk cleanup` / GUI button), never auto-deleted.
+- **Placement**: create the file preallocated, then `FSCTL_MOVE_FILE` its clusters to a free LCN in the target region, then write data. Fallback if the filesystem refuses: carve chunks out of reserve file(s) (<= 2 GB each, FAT32-safe) mapped with `FSCTL_GET_RETRIEVAL_POINTERS`. Validate on real hardware (M9); report lists regions it could not reach.
+- **Order** (no repeats): front, back, middle, then recursive bisection `0, N-1, N/2, N/4, 3N/4, N/8, ...`; first 32 points = **Batch 1**. Later passes use a different random 10 MB slot per region.
+
+### Stage 0: fast screen (goal: expose "512 GB is really 32 GB" in about 1-2 minutes)
+1. Write ~12 chunks: offset 0, the last chunk of the claimed size, and the 1/2/4/8/16/32/64/128/256 GB marks inside it. About 120 MB, seconds.
+2. Verify them immediately. Discarding, zero-returning, error-returning and exact-boundary wrap fakes fail here: FAIL, stop.
+3. **Alias scan**: strided raw reads (one 4 KiB sector every ~5 MB, so a 10 MB chunk cannot be missed) across the whole claimed range, looking for our magic with an embedded offset H that differs from the read address A. Every hit proves wrap-around: data meant for H is stored at A. `H - A = k x R` yields the real size R (consistent across several chunks), refined by a short bisect. ~100k reads for 512 GB, ~30-100 s on typical cards.
+4. Stage 0 passing is not a pass of the card; it only means no cheap fake pattern was found. Continue with batches.
+
+### Batches (Stage 1+)
+1. Write a whole batch (32 files) with no reads.
+2. Verify that batch once (SHA-256 + regenerate-compare).
+3. Continue with next batch. Do not delete files.
+4. After every 10 batches (configurable) re-verify Batch 1; a mismatch means later writes overwrote it (wrap-around) and the alias scan runs again.
+5. On stop/finish: final sweep re-verifies every point in reverse order.
+- Each sector embeds seed + absolute offset: a bad read reports "data from offset A found at B" (wrap, real size = B - A), "zeros/0xFF" (discarding) or "no magic" (garbage).
+- **First mismatch, read error or short write stops the run** with FAIL and a real-capacity estimate ("claimed 512 GB, real ~32 GB").
+- Live display: coverage % (verified bytes / claimed), MB/s, ETA hours to the target and to 100%, batch number, last Batch-1 recheck.
+- Honest wording: PASS = "no failure found in X% of the card"; show detection probability `1-(1-f)^n`.
+- **Data-loss warning** (README + GUI confirm): on a wrap-around fake, a write meant for free space can land on a real file's physical location and overwrite it. Non-destructive modes are only safe on genuine cards. Back up the card first; use Quick/Full for suspected fakes.
+- Separate **Speed test**: 2-4 GB sequential write, MB/s over time (10 MB files cannot show the write-cache drop).
+- Tests (FakeBlockDevice): 512-as-32 wrap fake (R = decimal 31.9 GB, not a power of two) caught by alias scan in Stage 0 with R estimated within 1%; discard/zero fakes caught at first verify; genuine passes with no false alias; Stop mid-batch gives a valid report; planner order unit-tested.
 - Milestone: M6b after Empty-space.
 
 ## Assumptions to confirm (change if wrong)
-1. "Empty-space" cannot pick physical offsets via normal files, so: pre-allocate one large file in free space, map extents with `FSCTL_GET_RETRIEVAL_POINTERS`, write 5 MB chunks only where extents fall near each 500 MB boundary, verify, delete. Coverage depends on free-space layout; report shows which regions were reachable.
+1. Empty-space/Confidence placement uses `FSCTL_MOVE_FILE` to put small files at chosen free clusters (fallback: reserve-file carving). Coverage depends on free-space layout; report shows which regions were reachable.
 2. Card readers sometimes present as "fixed" disks. v1 lists removable only; add `--allow-fixed` later if needed.
 3. Speed class is an estimate from sequential tests (C/U/V); A1/A2 random I/O is out of v1.
 4. GUI report view uses WebView2 (Evergreen runtime ships with Win11).

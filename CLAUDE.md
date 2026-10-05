@@ -16,7 +16,7 @@ Project: **sdchk**, a Windows 11 microSD fake-capacity / defect / speed checker.
 - Always unbuffered, sector-aligned I/O; write phase fully completes before read phase.
 - Per-sector data must be unique (seed + absolute offset); never reuse a repeating pattern.
 - Core logic must be testable via `FakeBlockDevice` simulating: genuine card, wrap-around fake, silently-discarding fake, bad sectors, slow regions, read errors.
-- Confidence mode: spread order (front, back, middle, bisection), batches of 32 chunks verified after writing, Batch 1 re-verified every 10 batches, test files kept until explicit cleanup; stop on first failure, honor Stop at any time, still emit a report; report coverage honestly (tested fraction), never "card is good".
+- Confidence mode: Stage 0 fast screen (far probes + alias scan) before batches; 10 MB files, spread order, batches of 32 verified after writing, Batch 1 rechecked every 10 batches, files kept until explicit cleanup; stop on first failure, honor Stop, always emit a report; coverage honest (tested fraction), never "card is good"; warn that non-destructive modes can overwrite data on fakes.
 - Report outputs: `result.html` + `result.log`. Never claim a verdict stronger than the evidence (e.g. Quick test cannot prove every sector good; say "sampled").
 - Do not copy code from SDCheck/MediaTester/H2testw/F3 without confirming license compatibility; implement independently.
 
