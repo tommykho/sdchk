@@ -18,6 +18,20 @@ Stage 1 acceptance (needs a real Windows machine and cards):
 
 Deferred: full bad-sector scan (Stage 2), GUI with block map, Confidence/Empty-space modes, A1/A2 grading, real-size partition fix.
 
+## ValiDrive review (from a summary pasted by the user; validrive.org itself is blocked from this session)
+Treat as secondhand. Described method: ~576 sample points spread evenly over the reported LBA range with random offsets; at each point read and save the original block, write unique data (seed + LBA), bypass caches, read back and compare, restore the original, record latency. Classes: valid / missing-or-wrapped / write-fail / read-error. Real size is the highest valid LBA; output is a valid/invalid map, latency stats and a trustworthy/suspect/fake verdict. Raw physical drive, admin, Windows, refuses fixed/system disks, power-loss warning.
+
+What we adopt or plan:
+1. **Save-and-restore ("protect mode", Stage 1.5)**: before writing any block that is not known-free, read it and store it in a journal file on the PC (flushed before the first write). After the test, restore every block; `sdchk restore --journal FILE` recovers after a crash or unplug. Because all originals are saved before any write, restoring is exact even on a wrap-around fake (all aliases of one physical block saved identical data). This turns "may destroy files" into "restored unless power is lost mid-test", and lets us test used areas too. Needs the volumes on the disk locked or dismounted so Windows does not write meanwhile.
+2. **Instant screen**: ~576 small (4 KiB) points evenly spread with random offsets, written, cache-flushed, read back. Seconds to run, gives a per-region valid/invalid map, a +/- 1 GiB real-size estimate for dropped-data fakes, and per-point latency (heatmap for the future GUI). Runs before the 8 MiB probes.
+3. **Latency per operation** recorded for every probe and shown as a region map.
+4. Verdict wording trustworthy / suspect / fake alongside PASS / SUSPECT / FAIL.
+
+Where the summary is not sufficient and we keep our own method:
+- **Wrap-around needs write-all, then verify-all.** Writing, verifying and restoring one point at a time cannot see wrap-around: the aliased write reads back consistently and the restore undoes it. Our order (write every probe first, flush cache, verify in random order, only then restore) is required.
+- **Small random points rarely collide.** With 4 KiB points the chance that a point's alias lands on another point is about N x 4 KiB / capacity (4e-6 for 576 points on 512 GiB). So the instant screen finds dropped-data fakes, not wrap-arounds. Wrap-arounds are caught by our 8 MiB probes at power-of-two offsets plus the strided alias scan, which looks for any of our data in the wrong place.
+- **Cache size**: the large-cache confirmation pass stays.
+
 ---
 
 # Original plan (full scope, kept for later stages)
