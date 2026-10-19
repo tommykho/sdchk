@@ -87,6 +87,7 @@ public sealed class UiServer
         {
             version = typeof(UiServer).Assembly.GetName().Version?.ToString(),
             windows = OperatingSystem.IsWindows(),
+            elevated = Elevation.IsElevated(),
             disclaimer = Disclaimer.Text,
             confirmPhrase = Disclaimer.ConfirmPhrase,
             journalDirectory = JournalDir,
@@ -109,6 +110,33 @@ public sealed class UiServer
                 .Select(f => new { path = f.FullName, bytes = f.Length, modified = f.LastWriteTimeUtc });
         });
         app.MapPost("/api/recover", (RecoverRequest req) => Recover(req));
+        app.MapPost("/api/elevate", (Microsoft.Extensions.Hosting.IHostApplicationLifetime life) =>
+        {
+            lock (_lock)
+            {
+                if (!OperatingSystem.IsWindows() || Elevation.IsElevated())
+                {
+                    return Results.BadRequest(new { error = "Nothing to do: not Windows, or already running as Administrator." });
+                }
+
+                if (_session is { } cur && !cur.Snapshot().Finished && cur.Completion is not null)
+                {
+                    return Results.BadRequest(new { error = "A test is running. Stop it first." });
+                }
+
+                try
+                {
+                    Elevation.RelaunchElevated($"ui --port {_o.Port + 1}");
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    return Results.BadRequest(new { error = "Administrator permission was not granted." });
+                }
+            }
+
+            life.StopApplication();
+            return Results.Ok(new { restarting = true });
+        });
 
         if (_o.OpenBrowser)
         {

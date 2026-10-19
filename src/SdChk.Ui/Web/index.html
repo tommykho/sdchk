@@ -90,6 +90,8 @@ details summary { cursor: pointer; color: var(--muted); }
       <div class="check"><input type="checkbox" id="fixed"><span>Allow a drive Windows calls fixed</span></div></div>
     <div id="imageBox" class="hidden"><label for="imgPath">Image file path</label><input type="text" id="imgPath" placeholder="C:\temp\card.img">
       <label for="imgGib">Image size (GiB)</label><input type="number" id="imgGib" value="1" min="1"></div>
+    <div id="adminBox" class="warn hidden" style="margin-top:8px">Reading and writing a real drive needs Administrator rights.
+      <div class="row"><button id="btnAdmin">Restart as Administrator</button></div></div>
     <div id="confirmBox" class="hidden"><label for="confirm">Type <b id="phrase"></b> to accept the warning above</label><input type="text" id="confirm" autocomplete="off"></div>
     <div class="check"><input type="checkbox" id="step" checked><span>Step by step (wait for me at each step)</span></div>
     <div class="check" id="slowBox"><input type="checkbox" id="slow" checked><span>Slow motion (demo only)</span></div>
@@ -216,6 +218,7 @@ function syncSource() {
   $('imageBox').classList.toggle('hidden', s !== 'image');
   $('confirmBox').classList.toggle('hidden', s === 'sim');
   $('slowBox').classList.toggle('hidden', s !== 'sim');
+  $('adminBox').classList.toggle('hidden', !(s === 'drive' && info.windows && !info.elevated));
   const sim = info.sims.find(x => x.id === $('sim').value);
   $('simDesc').textContent = s === 'sim' && sim ? sim.description : '';
 }
@@ -232,6 +235,10 @@ $('btnOpen').onclick = async () => {
     $('resultBox').classList.add('hidden');
     updateButtons(); await poll();
   } catch (e) { $('msg').textContent = 'Could not open: ' + e.message; }
+};
+$('btnAdmin').onclick = async () => {
+  try { await api('/api/elevate', {}); $('msg').textContent = 'Restarting as Administrator. A new browser tab opens; you can close this one.'; }
+  catch (e) { $('msg').textContent = e.message; }
 };
 $('btnStart').onclick = async () => { try { await api('/api/start', {}); running = true; updateButtons(); } catch (e) { $('msg').textContent = e.message; } };
 $('btnNext').onclick = async () => { try { await api('/api/next', {}); } catch (e) { $('msg').textContent = e.message; } };

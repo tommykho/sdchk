@@ -18,6 +18,7 @@ internal static class Program
           sdchk check --simulate NAME [options]              Same on a simulated card (any OS)
           sdchk simulate                      List simulated cards
           sdchk ui [--port 5199] [--no-open]  Open the map UI in your browser (journal-protected size check)
+          sdchk                               Same as 'sdchk ui' (double-click the exe)
 
         Options:
           --class U3         Printed speed class: C2 C4 C6 C10 U1 U3 V6 V10 V30 V60 V90
@@ -45,7 +46,17 @@ internal static class Program
 
     private static int Run(string[] args)
     {
-        if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
+        if (args.Length == 0)
+        {
+            return Ui(new Args(Array.Empty<string>()));
+        }
+
+        if (args[0].StartsWith("--", StringComparison.Ordinal) && args[0] != "--help")
+        {
+            return Ui(new Args(args));
+        }
+
+        if (args[0] is "-h" or "--help" or "help")
         {
             Console.WriteLine(Usage);
             return 0;

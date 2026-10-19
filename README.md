@@ -4,6 +4,10 @@ Open-source microSD / flash-drive checker for **Windows 11**. Finds fake capacit
 
 > **Status: Stage 1 proof of concept. Scope is SIZE and SPEED only.** The size and speed logic and the new journal are unit-tested against simulated fake cards on Linux, and the map UI was exercised in a real browser against simulated cards. The Windows drive backend has **not yet been run on real hardware**: start with `sdchk inspect`.
 
+## Download
+
+Get the latest `sdchk-v*-win-x64.zip` from the [Releases](../../releases) page (Windows 11 x64, no .NET install needed; the exe is unsigned, so SmartScreen may warn). Double-click `sdchk.exe` to open the map UI, or use the command line. Releases are built by GitHub Actions on a Windows runner when a `v*` tag is pushed.
+
 ## WARNING - read before use
 
 **This test writes test data into the free space of your card. If the card is FAKE and wraps around (it reports more capacity than it really has), these writes can OVERWRITE AND DESTROY EXISTING FILES. BACK UP ALL FILES FIRST. Use at your own risk: the software is provided without warranty of any kind (GPL-3.0-or-later), and the authors are not liable for data loss.**
