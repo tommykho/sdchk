@@ -2,13 +2,15 @@
 
 Open-source microSD / flash-drive checker for **Windows 11**. Finds fake capacity (a 16 GB card relabelled 512 GB) and slow cards, and writes an evidence report you can attach to a refund or fraud dispute.
 
-> **Status: Stage 1 proof of concept. Scope is SIZE and SPEED only.** The size and speed logic is unit-tested against simulated fake cards on Linux. The Windows drive backend has **not yet been run on real hardware**: start with `sdchk inspect`.
+> **Status: Stage 1 proof of concept. Scope is SIZE and SPEED only.** The size and speed logic and the new journal are unit-tested against simulated fake cards on Linux, and the map UI was exercised in a real browser against simulated cards. The Windows drive backend has **not yet been run on real hardware**: start with `sdchk inspect`.
 
 ## WARNING - read before use
 
 **This test writes test data into the free space of your card. If the card is FAKE and wraps around (it reports more capacity than it really has), these writes can OVERWRITE AND DESTROY EXISTING FILES. BACK UP ALL FILES FIRST. Use at your own risk: the software is provided without warranty of any kind (GPL-3.0-or-later), and the authors are not liable for data loss.**
 
-The CLI shows this text and requires you to type `I UNDERSTAND` (or pass `--accept-risk`). The same text is in every report.
+The CLI and the UI show this text and require you to type `I UNDERSTAND` (or pass `--accept-risk`) before touching a real device. The same text is in every report.
+
+**Protection:** before any block is overwritten, its original content is saved to an undo **journal** on your PC (never on the card) and flushed to disk. After the test every block is written back and verified, so even a wrap-around fake cannot keep your files. If the PC crashes or the card is unplugged mid-test, restore from the journal (UI: *Recover from a journal*). Power loss or unplugging during the test is still a real risk: back up first.
 
 ## What it checks (Stage 1)
 
@@ -27,6 +29,17 @@ The CLI shows this text and requires you to type `I UNDERSTAND` (or pass `--acce
 
 Not in Stage 1: full-card bad-sector scan, GUI, used-card "confidence" mode. See [PLAN.md](PLAN.md).
 
+## Card map UI (prototype)
+
+```
+sdchk ui            # opens http://127.0.0.1:5199 in your browser (local only, token protected)
+```
+
+Guided, step by step (or run all): **1** whole-card map, **2** free space (light) versus used (dark), **3** plan the test areas and create the journal (originals saved), **4** write unique data to many areas spread over the card, **5** read them back in random order and validate, **6** restore the originals and verify the restore. Every square is part of the card's claimed capacity; coloured marks show planned / journaled / written / verified / failed, and purple marks show data that wrap-around moved to the wrong place. Demo cards let you watch a fake card being caught without any hardware:
+
+![Free space shown on the map](docs/ui-free-space.png)
+![Result on a wrap-around fake: files restored](docs/ui-wrap-fake-result.png)
+
 ## Usage
 
 ```
@@ -39,7 +52,8 @@ sdchk simulate                               # list simulated fake cards
 sdchk check --simulate wrap-32-of-512 --class U3
 ```
 
-Options: `--class`, `--size-only`, `--speed-only`, `--probe-mib`, `--seq-mib`, `--random-ops`, `--out DIR`, `--allow-fixed`, `--accept-risk`.
+Options: `--class`, `--size-only`, `--speed-only`, `--probe-mib`, `--seq-mib`, `--random-ops`, `--out DIR`, `--allow-fixed`, `--accept-risk`, `--journal-dir DIR`, `--no-protect` (not recommended).
+`check` on a real drive or image saves originals to a journal first and restores them after the size check.
 Exit code: 0 all pass, 2 any fail, 3 suspect/inconclusive, 1 error.
 
 Output: `results\result.html` (self-contained, with a speed chart and the log's SHA-256) and `results\result.log`.
@@ -60,7 +74,7 @@ dotnet test
 dotnet publish src/SdChk.Cli -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
 
-Requires .NET 8 SDK. Layout: `src/SdChk.Core` (engine, simulated cards, reports), `src/SdChk.Windows` (drive backend), `src/SdChk.Cli`, `tests/SdChk.Tests`.
+Requires .NET 8 SDK. Layout: `src/SdChk.Core` (engine, journal, simulated cards, reports), `src/SdChk.Windows` (drive backend), `src/SdChk.Ui` (local web UI), `src/SdChk.Cli`, `tests/SdChk.Tests`.
 
 ## Prior art
 

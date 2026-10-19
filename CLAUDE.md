@@ -7,13 +7,14 @@ Project: **sdchk**, a Windows 11 microSD fake-capacity and speed checker. Curren
   - `src/SdChk.Core`: platform-neutral engine (patterns, test modes, verdict, report). Depends only on `IBlockDevice`.
   - `src/SdChk.Windows`: Win32 raw-disk implementation of `IBlockDevice` (P/Invoke), volume bitmap/retrieval-pointer helpers.
   - `src/SdChk.Cli`: `sdchk` command line.
-  - `src/SdChk.Gui`: planned, not created yet.
+  - `src/SdChk.Ui`: local web UI (ASP.NET Core minimal API on 127.0.0.1 + embedded `Web/index.html`); `sdchk ui` starts it. Keep it local-only: bind 127.0.0.1, keep the per-run token and Host check.
   - `tests/SdChk.Tests`: xUnit; uses `FakeBlockDevice`.
 - Dev sandbox is Linux: Core and Tests must build/run with `dotnet test` on Linux. Windows-only code stays in `SdChk.Windows`/`Gui`/`Cli` Windows paths. Never claim Windows behaviour was verified unless it ran on Windows (CI: GitHub Actions `windows-latest`).
 
 ## Non-negotiable rules
 - The risk disclaimer (`Disclaimer.Text`) must appear in the CLI/GUI before any write, in every report, and in the README: the test may overwrite existing files if the card is fake and wraps around. Typed confirmation `I UNDERSTAND` (or explicit `--accept-risk`) is required before writing to a real device.
 - Real-device writes go only to free clusters; `WindowsVolumeDevice.Write` hard-refuses anything else. Keep the calibration check; if the mapping cannot be proven, do not write.
+- Journal first: nothing on a real device is overwritten before its original content is saved to the journal and flushed (journal never on the tested drive). Cancel, failure and normal completion all restore. Keep `JournalObserver.Protect` before every write path (including refinement writes).
 - The Windows backend is UNVERIFIED on hardware; never claim otherwise until someone has run `sdchk inspect`/`check` on real cards.
 - Destructive operations: removable disks only; never the system/boot disk; require explicit typed confirmation; check disk number, size and serial immediately before the first write. Default to refusal when unsure.
 - Always unbuffered, sector-aligned I/O; write phase fully completes (flush, reopen handle, overwhelm write cache) before the read phase; verification of probes uses random-order small reads, not just sequential.

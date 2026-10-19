@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using SdChk.Core;
 using SdChk.Core.Devices;
+using SdChk.Ui;
 using SdChk.Windows;
 
 namespace SdChk.Cli;
@@ -16,6 +17,7 @@ internal static class Program
           sdchk check --image FILE --image-gib N [options]   Same on a disk-image file (any OS)
           sdchk check --simulate NAME [options]              Same on a simulated card (any OS)
           sdchk simulate                      List simulated cards
+          sdchk ui [--port 5199] [--no-open]  Open the map UI in your browser (journal-protected size check)
 
         Options:
           --class U3         Printed speed class: C2 C4 C6 C10 U1 U3 V6 V10 V30 V60 V90
@@ -24,6 +26,8 @@ internal static class Program
           --random-ops 1000  Random 4 KiB operations    --out DIR        Report folder (default .\results)
           --allow-fixed      Allow a drive Windows reports as fixed
           --accept-risk      Skip the typed confirmation (you accept the warning)
+          --no-protect       Do not save originals to a journal first (NOT recommended)
+          --journal-dir DIR  Where the undo journal is kept (never on the card)
         """;
 
     private static int Main(string[] args)
@@ -53,11 +57,26 @@ internal static class Program
             case "list": return List();
             case "simulate": return ListSimulations();
             case "inspect": return Inspect(opt);
+            case "ui": return Ui(opt);
             case "check": return Check(opt);
             default:
                 Console.Error.WriteLine($"Unknown command '{args[0]}'.\n{Usage}");
                 return 1;
         }
+    }
+
+    private static int Ui(Args a)
+    {
+        var server = new UiServer(new UiOptions(int.Parse(a.Value("--port") ?? "5199"), !a.Flag("--no-open")));
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cts.Cancel();
+        };
+        Console.WriteLine($"sdchk map UI: {server.Url}\nPress Ctrl+C to quit.");
+        server.RunAsync(cts.Token).GetAwaiter().GetResult();
+        return 0;
     }
 
     private static int List()
@@ -189,14 +208,37 @@ internal static class Program
 
         if (!a.Flag("--speed-only"))
         {
-            size = SizeProbe.Run(dev, new SizeProbeOptions
+            Journal? journal = null;
+            ProbeObserver? observer = null;
+            if (!simulated && !a.Flag("--no-protect"))
             {
-                ProbeBytes = probeMib << 20,
-                ConfirmBytes = simulated ? 96L << 20 : 1L << 30,
-                Log = log.Info,
-                Progress = progress,
-                Cancel = cts.Token,
-            });
+                string dir = a.Value("--journal-dir") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) is { Length: > 0 } l ? l : Path.GetTempPath(), "sdchk", "journals");
+                journal = Journal.Create(Path.Combine(dir, $"sdchk-{DateTime.UtcNow:yyyyMMdd-HHmmss}.sdchkj"), dev.Description, dev.Size);
+                observer = new JournalObserver(journal, dev, cts.Token, f => progress("Saving originals to the journal", f));
+                Console.WriteLine($"Undo journal: {journal.Path}");
+                log.Info($"Undo journal: {journal.Path}");
+            }
+
+            try
+            {
+                size = SizeProbe.Run(dev, new SizeProbeOptions
+                {
+                    ProbeBytes = probeMib << 20,
+                    ConfirmBytes = simulated ? 96L << 20 : 1L << 30,
+                    Observer = observer,
+                    Log = log.Info,
+                    Progress = progress,
+                    Cancel = cts.Token,
+                });
+            }
+            finally
+            {
+                if (journal is not null)
+                {
+                    RestoreJournal(journal, dev, log);
+                }
+            }
+
             Console.Error.Write("\r".PadRight(60) + "\r");
             Console.WriteLine($"SIZE : {size.Verdict.ToString().ToUpperInvariant()} - {size.Summary}");
         }
@@ -235,6 +277,24 @@ internal static class Program
 
         var verdicts = new[] { size?.Verdict, speed?.Verdict }.Where(v => v.HasValue).Select(v => v!.Value).ToList();
         return verdicts.Any(v => v == Verdict.Fail) ? 2 : verdicts.All(v => v == Verdict.Pass) ? 0 : 3;
+    }
+
+    private static void RestoreJournal(Journal journal, IBlockDevice dev, RunLog log)
+    {
+        Console.WriteLine("Restoring the saved originals...");
+        var result = journal.Restore(dev);
+        if (result.Ok)
+        {
+            journal.Dispose();
+            File.Delete(journal.Path);
+            Console.WriteLine($"Originals restored and verified ({result.Entries} areas, {result.Bytes >> 20} MiB). Journal deleted.");
+            log.Info($"Originals restored and verified ({result.Entries} areas). Journal deleted.");
+        }
+        else
+        {
+            Console.WriteLine($"RESTORE PROBLEM in {result.Failures.Count} areas. The journal was kept: {journal.Path}");
+            log.Info($"RESTORE PROBLEM: journal kept at {journal.Path}");
+        }
     }
 
     private static Action<string, double> ConsoleProgress()

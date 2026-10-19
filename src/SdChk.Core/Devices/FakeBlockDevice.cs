@@ -42,11 +42,15 @@ public sealed record FakeCardOptions
 
     public double RandomReadIops { get; init; } = 2000;
 
+    /// <summary>Free space the host reports. Defaults to everything except <see cref="UsedExtents"/>.</summary>
     public IReadOnlyList<Extent>? UsableExtents { get; init; }
+
+    /// <summary>Ranges of (physical) flash that hold the owner's files. Reads of untouched blocks there return user data.</summary>
+    public IReadOnlyList<Extent> UsedExtents { get; init; } = Array.Empty<Extent>();
 }
 
 /// <summary>Sparse in-memory card with configurable fake behaviour and a virtual clock.</summary>
-public sealed class FakeBlockDevice : IBlockDevice
+public sealed class FakeBlockDevice : IBlockDevice, IUserDataProbe
 {
     private const int SequentialThreshold = 128 * 1024;
 
@@ -64,7 +68,7 @@ public sealed class FakeBlockDevice : IBlockDevice
         _o = options;
         _real = options.Behavior == FakeBehavior.Genuine ? options.ClaimedSize : options.RealSize / Pattern.BlockSize * Pattern.BlockSize;
         Size = options.ClaimedSize;
-        UsableExtents = options.UsableExtents ?? new[] { new Extent(0, Size) };
+        UsableExtents = options.UsableExtents ?? (options.UsedExtents.Count > 0 ? Extents.Complement(Size, options.UsedExtents) : new[] { new Extent(0, Size) });
         Description = $"Simulated card claiming {SizeProbe.Fmt(Size)}, really {SizeProbe.Fmt(_real)} ({options.Behavior})";
     }
 
@@ -77,6 +81,47 @@ public sealed class FakeBlockDevice : IBlockDevice
     public IClock Clock => _clock;
 
     public long RealSize => _real;
+
+    public FakeCardOptions Options => _o;
+
+    /// <summary>Salt of the pseudo user files, so tests can recognise intact data.</summary>
+    public const ulong UserSalt = 0x5553455246494C45UL;
+
+    /// <summary>Number of 4 KiB blocks inside the used ranges whose content no longer matches the original user data.</summary>
+    public int CountDamagedUserBlocks()
+    {
+        int damaged = 0;
+        Span<byte> expected = stackalloc byte[Pattern.BlockSize];
+        foreach (var (index, data) in _store)
+        {
+            long phys = index * Pattern.BlockSize;
+            if (!InUsed(phys))
+            {
+                continue;
+            }
+
+            Pattern.FillBlock(expected, phys, UserSalt);
+            if (!data.AsSpan().SequenceEqual(expected))
+            {
+                damaged++;
+            }
+        }
+
+        return damaged;
+    }
+
+    private bool InUsed(long phys)
+    {
+        foreach (var u in _o.UsedExtents)
+        {
+            if (phys >= u.Start && phys < u.End)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public void Read(long offset, Span<byte> buffer)
     {
@@ -157,6 +202,10 @@ public sealed class FakeBlockDevice : IBlockDevice
         if (_store.TryGetValue(phys / Pattern.BlockSize, out var data))
         {
             data.CopyTo(block);
+        }
+        else if (InUsed(phys))
+        {
+            Pattern.FillBlock(block, phys, UserSalt);
         }
         else
         {

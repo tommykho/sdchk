@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="sdchk-token" content="{{TOKEN}}">
+<title>sdchk card map</title>
+<style>
+:root {
+  --bg: #f4f6f8; --panel: #ffffff; --ink: #1b2430; --muted: #5d6b7c; --line: #d6dde5;
+  --accent: #2563eb; --accent-ink: #ffffff; --warn-bg: #fff4d6; --warn-line: #e0b000;
+  --used: #4a5568; --free: #d8efe1; --unknown: #cfd8e3;
+  --planned: #2563eb; --journaled: #2563eb; --written: #f59e0b; --verified: #16a34a;
+  --changed: #9333ea; --failed: #dc2626; --restored: #0d9488;
+  --ok: #16a34a; --bad: #dc2626; --mid: #b45309;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161c; --panel: #1b222b; --ink: #e8edf3; --muted: #9aa8b8; --line: #2e3844;
+    --accent: #5b8def; --warn-bg: #3a3000; --warn-line: #a88400;
+    --used: #6b778a; --free: #2c5a45; --unknown: #3a4655;
+    --planned: #6aa0ff; --journaled: #6aa0ff; --written: #fbbf24; --verified: #34d399;
+    --changed: #c084fc; --failed: #f87171; --restored: #2dd4bf;
+    --ok: #34d399; --bad: #f87171; --mid: #fbbf24;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+header { padding: 14px 20px 0; }
+h1 { font-size: 20px; margin: 0 0 8px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+.warn { background: var(--warn-bg); border: 1px solid var(--warn-line); padding: 8px 12px; border-radius: 8px; font-size: 12.5px; }
+.layout { display: grid; grid-template-columns: 290px minmax(360px, 1fr) 340px; gap: 16px; padding: 16px 20px 28px; align-items: start; }
+@media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.panel h2:first-child { margin-top: 0; }
+label { display: block; margin: 8px 0 3px; color: var(--muted); font-size: 12.5px; }
+select, input[type=text], input[type=number] { width: 100%; padding: 7px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; }
+.check { display: flex; gap: 8px; align-items: center; margin: 8px 0; color: var(--ink); }
+.check input { margin: 0; }
+button { font: inherit; padding: 8px 12px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button.danger { color: var(--bad); border-color: var(--bad); }
+button:disabled { opacity: .45; cursor: default; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+ol.steps { list-style: none; margin: 0; padding: 0; }
+ol.steps li { display: flex; gap: 10px; align-items: center; padding: 6px 0; color: var(--muted); }
+ol.steps li .dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-size: 11px; flex: none; }
+ol.steps li.active { color: var(--ink); font-weight: 600; }
+ol.steps li.active .dot { border-color: var(--accent); color: var(--accent); }
+ol.steps li.done .dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+ol.steps li.bad .dot { background: var(--bad); border-color: var(--bad); color: #fff; }
+#mapwrap { position: relative; }
+canvas { width: 100%; display: block; border-radius: 8px; background: var(--panel); }
+#tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); padding: 5px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; display: none; z-index: 5; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
+.msg { margin: 10px 0 0; min-height: 40px; }
+.bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+dt { color: var(--muted); } dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; word-break: break-all; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 999px; color: #fff; font-weight: 700; font-size: 12px; }
+.badge.pass { background: #1b7f3b; } .badge.fail { background: #b3261e; } .badge.suspect { background: #b26a00; } .badge.inconclusive { background: #555; }
+pre#log { max-height: 190px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 11.5px; margin: 0; white-space: pre-wrap; }
+.ok { color: var(--ok); } .bad { color: var(--bad); }
+.hidden { display: none !important; }
+small { color: var(--muted); }
+details summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>sdchk card map <small>prototype</small></h1>
+  <div class="warn" id="disclaimer"></div>
+</header>
+
+<div class="layout">
+  <section class="panel">
+    <h2>1. Choose a card</h2>
+    <label for="source">Source</label>
+    <select id="source">
+      <option value="sim">Demo (simulated card, nothing real is touched)</option>
+      <option value="drive" id="optDrive">Real drive (Windows, Administrator)</option>
+      <option value="image">Disk image file</option>
+    </select>
+    <div id="simBox"><label for="sim">Demo card</label><select id="sim"></select><small id="simDesc"></small></div>
+    <div id="driveBox" class="hidden"><label for="drive">Drive</label><select id="drive"></select>
+      <div class="check"><input type="checkbox" id="fixed"><span>Allow a drive Windows calls fixed</span></div></div>
+    <div id="imageBox" class="hidden"><label for="imgPath">Image file path</label><input type="text" id="imgPath" placeholder="C:\temp\card.img">
+      <label for="imgGib">Image size (GiB)</label><input type="number" id="imgGib" value="1" min="1"></div>
+    <div id="confirmBox" class="hidden"><label for="confirm">Type <b id="phrase"></b> to accept the warning above</label><input type="text" id="confirm" autocomplete="off"></div>
+    <div class="check"><input type="checkbox" id="step" checked><span>Step by step (wait for me at each step)</span></div>
+    <div class="check" id="slowBox"><input type="checkbox" id="slow" checked><span>Slow motion (demo only)</span></div>
+    <div class="row"><button class="primary" id="btnOpen">Show card map</button></div>
+
+    <h2>2. Steps</h2>
+    <ol class="steps" id="steps">
+      <li data-s="Map"><span class="dot">1</span>Whole card map</li>
+      <li data-s="FreeSpace"><span class="dot">2</span>Free space</li>
+      <li data-s="Journal"><span class="dot">3</span>Journal (save originals)</li>
+      <li data-s="Write"><span class="dot">4</span>Write test areas</li>
+      <li data-s="Validate"><span class="dot">5</span>Read back and validate</li>
+      <li data-s="Restore"><span class="dot">6</span>Restore originals</li>
+    </ol>
+    <div class="row">
+      <button class="primary" id="btnStart" disabled>Start</button>
+      <button id="btnNext" disabled>Next</button>
+      <button class="danger" id="btnStop" disabled>Stop</button>
+    </div>
+    <details style="margin-top:14px"><summary>Recover from a journal</summary>
+      <p><small>If a test was interrupted (crash, unplug), pick the real drive or image above, then restore its saved originals.</small></p>
+      <div class="row"><button id="btnJournals">List journals</button></div>
+      <div id="journals"></div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2>Card map <small id="mapSub"></small></h2>
+    <div id="mapwrap"><canvas id="map" width="640" height="640"></canvas><div id="tip"></div></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--unknown)"></i>not scanned</span>
+      <span><i class="sw" style="background:var(--used)"></i>used</span>
+      <span><i class="sw" style="background:var(--free)"></i>free</span>
+      <span><i class="sw" style="border:2px solid var(--planned)"></i>planned</span>
+      <span><i class="sw" style="background:var(--journaled)"></i>journaled</span>
+      <span><i class="sw" style="background:var(--written)"></i>written</span>
+      <span><i class="sw" style="background:var(--verified)"></i>verified</span>
+      <span><i class="sw" style="background:var(--changed)"></i>wrong place (wrap-around)</span>
+      <span><i class="sw" style="background:var(--failed)"></i>failed</span>
+      <span><i class="sw" style="border:2px solid var(--restored)"></i>restored</span>
+    </div>
+    <p class="msg" id="msg">Choose a card and press “Show card map”.</p>
+    <div class="bar"><i id="bar"></i></div><small id="barLabel"></small>
+  </section>
+
+  <section class="panel">
+    <h2>Card</h2>
+    <dl>
+      <dt>Claimed capacity</dt><dd id="cap">-</dd>
+      <dt>Free space</dt><dd id="free">-</dd>
+      <dt>Used space</dt><dd id="used">-</dd>
+      <dt>Areas to write</dt><dd id="areas">-</dd>
+      <dt>Journal</dt><dd id="jsize">-</dd>
+      <dt>Elapsed</dt><dd id="elapsed">-</dd>
+    </dl>
+    <small id="jpath" style="word-break:break-all"></small>
+
+    <div id="resultBox" class="hidden">
+      <h2>Result</h2>
+      <p><span class="badge" id="verdict"></span></p>
+      <p id="summary"></p>
+      <dl>
+        <dt>Estimated real capacity</dt><dd id="real">-</dd>
+        <dt>Wrap-around found</dt><dd id="wrap">-</dd>
+        <dt>Areas tested</dt><dd id="probes">-</dd>
+        <dt>Misplaced blocks</dt><dd id="alias">-</dd>
+      </dl>
+      <p id="restoreLine"></p>
+      <p id="userLine"></p>
+      <div class="row"><button id="btnReport">Open report</button><button id="btnLog">Open log</button></div>
+    </div>
+
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </section>
+</div>
+
+<script>
+"use strict";
+const TOKEN = document.querySelector('meta[name="sdchk-token"]').content;
+const $ = id => document.getElementById(id);
+let info = null, layout = null, snap = null, lastVersion = -1, opened = false, running = false;
+const STAGE_ORDER = ['Map', 'FreeSpace', 'Journal', 'Write', 'Validate', 'Restore'];
+const ST = ['none', 'planned', 'journaled', 'written', 'verified', 'changed', 'failed'];
+
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: { 'X-SdChk-Token': TOKEN, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const text = await r.text();
+  let data = null; try { data = JSON.parse(text); } catch { data = text; }
+  if (!r.ok) throw new Error((data && data.error) || text || r.statusText);
+  return data;
+}
+function fmt(b) {
+  if (b == null) return '-';
+  if (b >= 2 ** 30) return (b / 2 ** 30).toFixed(b >= 10 * 2 ** 30 ? 1 : 2) + ' GiB';
+  return (b / 2 ** 20).toFixed(0) + ' MiB';
+}
+function b64(s) { const bin = atob(s || ''); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function rgb(c) {
+  if (c.startsWith('#')) { const n = c.length === 4 ? c.slice(1).split('').map(x => x + x).join('') : c.slice(1); return [0, 2, 4].map(i => parseInt(n.slice(i, i + 2), 16)); }
+  return c.match(/\d+/g).slice(0, 3).map(Number);
+}
+
+async function init() {
+  info = await api('/api/info');
+  $('disclaimer').textContent = info.disclaimer;
+  $('phrase').textContent = info.confirmPhrase;
+  for (const s of info.sims) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.id; o.title = s.description; $('sim').appendChild(o); }
+  for (const d of info.drives) { const o = document.createElement('option'); o.value = d.letter; o.textContent = `${d.letter} ${d.label || ''} ${d.format} ${(d.totalBytes / 1e9).toFixed(1)} GB (${d.driveType})`; $('drive').appendChild(o); }
+  if (!info.windows) $('optDrive').disabled = true;
+  $('source').onchange = syncSource; $('sim').onchange = syncSource; syncSource();
+  draw();
+  setInterval(poll, 250);
+}
+function syncSource() {
+  const s = $('source').value;
+  $('simBox').classList.toggle('hidden', s !== 'sim');
+  $('driveBox').classList.toggle('hidden', s !== 'drive');
+  $('imageBox').classList.toggle('hidden', s !== 'image');
+  $('confirmBox').classList.toggle('hidden', s === 'sim');
+  $('slowBox').classList.toggle('hidden', s !== 'sim');
+  const sim = info.sims.find(x => x.id === $('sim').value);
+  $('simDesc').textContent = s === 'sim' && sim ? sim.description : '';
+}
+
+$('btnOpen').onclick = async () => {
+  try {
+    const s = $('source').value;
+    const res = await api('/api/open', {
+      source: s, id: $('sim').value, letter: $('drive').value, path: $('imgPath').value, gib: +$('imgGib').value,
+      confirm: $('confirm').value, allowFixed: $('fixed').checked, stepMode: $('step').checked, slowMotion: $('slow').checked
+    });
+    layout = res.layout; opened = true; running = false; lastVersion = -1;
+    $('msg').textContent = res.description;
+    $('resultBox').classList.add('hidden');
+    updateButtons(); await poll();
+  } catch (e) { $('msg').textContent = 'Could not open: ' + e.message; }
+};
+$('btnStart').onclick = async () => { try { await api('/api/start', {}); running = true; updateButtons(); } catch (e) { $('msg').textContent = e.message; } };
+$('btnNext').onclick = async () => { try { await api('/api/next', {}); } catch (e) { $('msg').textContent = e.message; } };
+$('btnStop').onclick = async () => { try { await api('/api/cancel', {}); } catch (e) { $('msg').textContent = e.message; } };
+async function openText(path, type) {
+  try {
+    const r = await fetch(path, { headers: { 'X-SdChk-Token': TOKEN } });
+    if (!r.ok) throw new Error((await r.json()).error);
+    const url = URL.createObjectURL(new Blob([await r.text()], { type }));
+    window.open(url, '_blank');
+  } catch (e) { $('msg').textContent = e.message; }
+}
+$('btnReport').onclick = () => openText('/api/report', 'text/html');
+$('btnLog').onclick = () => openText('/api/log', 'text/plain');
+$('btnJournals').onclick = async () => {
+  const list = await api('/api/journals');
+  const box = $('journals'); box.innerHTML = list.length ? '' : '<small>No journals found.</small>';
+  for (const j of list) {
+    const row = document.createElement('div'); row.className = 'row';
+    const b = document.createElement('button'); b.textContent = 'Restore'; b.title = j.path;
+    b.onclick = async () => {
+      try {
+        const s = $('source').value;
+        const r = await api('/api/recover', { journalPath: j.path, source: s, letter: $('drive').value, path: $('imgPath').value, gib: +$('imgGib').value, confirm: $('confirm').value, allowFixed: $('fixed').checked });
+        $('msg').textContent = r.ok ? `Restored ${r.entries} areas (${fmt(r.bytes)}).` : 'Restore problems: ' + JSON.stringify(r.failures);
+      } catch (e) { $('msg').textContent = e.message; }
+    };
+    const t = document.createElement('small'); t.textContent = ` ${fmt(j.bytes)}  ${new Date(j.modified).toLocaleString()}`;
+    row.append(b, t); box.appendChild(row);
+  }
+};
+
+function updateButtons() {
+  const finished = snap && ['Done', 'Cancelled', 'Failed'].includes(snap.stage);
+  $('btnOpen').disabled = running && !finished;
+  $('btnStart').disabled = !opened || running || finished;
+  $('btnStop').disabled = !running || finished;
+  const waiting = snap && snap.waiting;
+  $('btnNext').disabled = !waiting;
+  $('btnNext').textContent = waiting ? 'Next: ' + snap.nextStep : 'Next';
+  $('btnNext').classList.toggle('primary', !!waiting);
+}
+
+async function poll() {
+  if (!opened) return;
+  let s;
+  try { s = await api('/api/state'); } catch { return; }
+  if (s.version === lastVersion) return;
+  lastVersion = s.version; snap = s;
+  if (['Done', 'Cancelled', 'Failed'].includes(s.stage)) running = false;
+  render();
+}
+
+function render() {
+  const s = snap;
+  $('msg').textContent = s.message || '';
+  $('bar').style.width = Math.round((s.progress || 0) * 100) + '%';
+  $('barLabel').textContent = s.progressLabel ? `${s.progressLabel} ${Math.round((s.progress || 0) * 100)}%` : '';
+  $('cap').textContent = fmt(s.layout.size);
+  $('free').textContent = s.freeKnown ? fmt(s.freeBytes) + ` in ${s.freeRanges} ranges` : '-';
+  $('used').textContent = s.freeKnown ? fmt(s.usedBytes) : '-';
+  $('areas').textContent = s.plannedAreas ? `${s.plannedAreas} (${fmt(s.plannedBytes)})` : '-';
+  $('jsize').textContent = s.journalPath ? `${fmt(s.journalBytes)} in ${s.journalEntries} areas` : '-';
+  $('jpath').textContent = s.journalPath || '';
+  $('elapsed').textContent = (s.elapsedSeconds || 0).toFixed(0) + ' s';
+  $('mapSub').textContent = `each square = ${fmt(s.layout.cellBytes)}`;
+  $('log').textContent = (s.log || []).join('\n'); $('log').scrollTop = 1e9;
+
+  const idx = STAGE_ORDER.indexOf(s.stage);
+  const finished = ['Done', 'Cancelled', 'Failed'].includes(s.stage);
+  document.querySelectorAll('#steps li').forEach((li, i) => {
+    li.classList.remove('active', 'done', 'bad');
+    const dot = li.querySelector('.dot');
+    if (finished) { li.classList.add(s.stage === 'Done' ? 'done' : (i <= Math.max(idx, 0) ? 'bad' : '')); }
+    else if (i < idx) li.classList.add('done');
+    else if (i === idx) li.classList.add('active');
+    dot.textContent = li.classList.contains('done') ? '✓' : (i + 1);
+  });
+  if (finished) showResult(s);
+  updateButtons(); draw();
+}
+
+function showResult(s) {
+  $('resultBox').classList.remove('hidden');
+  const r = s.size;
+  const badge = $('verdict');
+  if (r) {
+    const v = r.verdict.toLowerCase();
+    badge.textContent = 'SIZE: ' + r.verdict.toUpperCase(); badge.className = 'badge ' + v;
+    $('summary').textContent = r.summary;
+    $('real').textContent = r.estimatedRealSize ? fmt(r.estimatedRealSize) : 'n/a';
+    $('wrap').textContent = r.wrapAround ? 'yes' : 'no';
+    $('probes').textContent = r.probes ? r.probes.length : '-';
+    $('alias').textContent = r.aliasHitCount;
+  } else { badge.textContent = s.stage.toUpperCase(); badge.className = 'badge inconclusive'; $('summary').textContent = s.message; }
+  const rr = s.restoreResult;
+  $('restoreLine').innerHTML = rr ? (rr.entries === 0 ? '' : rr.failures.length === 0
+    ? `<span class="ok">✓ Originals restored and verified</span> (${rr.entries} areas, ${fmt(rr.bytes)}).`
+    : `<span class="bad">✗ Restore problem in ${rr.failures.length} areas.</span> The journal was kept: ${s.journalPath}`) : '';
+  $('userLine').innerHTML = s.userDataCheckAvailable
+    ? `Your files (simulation): <b>${s.damagedBeforeRestore}</b> damaged blocks right after the test → <b class="${s.damagedAfterRestore ? 'bad' : 'ok'}">${s.damagedAfterRestore}</b> after restore.` : '';
+}
+
+// ---- map drawing ----
+const cv = $('map'), ctx = cv.getContext('2d');
+function draw() {
+  const L = (snap && snap.layout && snap.layout.cells) ? snap.layout : layout;
+  const w = cv.clientWidth || 640;
+  const dpr = window.devicePixelRatio || 1;
+  const cols = L ? L.cols : 64, rows = L ? L.rows : 64;
+  const cs = Math.max(4, Math.floor(w / cols));
+  const W = cs * cols, H = cs * rows;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = H * (cv.clientWidth / W) + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  if (!L) return;
+  const cells = L.cells ?? cols * rows;
+  const used = rgb(css('--used')), free = rgb(css('--free')), unk = rgb(css('--unknown'));
+  const freeKnown = snap && snap.freeKnown;
+  const fp = snap ? b64(snap.freePct) : null, st = snap ? b64(snap.status) : null, rs = snap ? b64(snap.restored) : null;
+  const col = n => css('--' + n);
+  const colors = { planned: col('planned'), journaled: col('journaled'), written: col('written'), verified: col('verified'), changed: col('changed'), failed: col('failed') };
+  const inset = Math.max(1, Math.round(cs * 0.27));
+  for (let i = 0; i < cells; i++) {
+    const x = (i % cols) * cs, y = Math.floor(i / cols) * cs;
+    let c = unk;
+    if (freeKnown && fp && fp[i] !== 255) { const t = fp[i] / 100; c = used.map((u, k) => Math.round(u + (free[k] - u) * t)); }
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+    ctx.fillRect(x + .5, y + .5, cs - 1, cs - 1);
+    const sname = st ? ST[st[i]] : 'none';
+    if (sname === 'planned') { ctx.strokeStyle = colors.planned; ctx.lineWidth = 1.5; ctx.strokeRect(x + inset, y + inset, cs - 2 * inset, cs - 2 * inset); }
+    else if (sname !== 'none') { ctx.fillStyle = colors[sname]; ctx.fillRect(x + inset, y + inset, cs - 2 * inset, cs - 2 * inset); }
+    if (rs && rs[i]) { ctx.strokeStyle = css('--restored'); ctx.lineWidth = 2; ctx.strokeRect(x + 1.5, y + 1.5, cs - 3, cs - 3); }
+  }
+}
+window.addEventListener('resize', draw);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+
+cv.addEventListener('mousemove', e => {
+  const L = snap && snap.layout && snap.layout.cells ? snap.layout : layout; if (!L) return;
+  const r = cv.getBoundingClientRect(); const cs = r.width / L.cols;
+  const cx = Math.floor((e.clientX - r.left) / cs), cy = Math.floor((e.clientY - r.top) / cs);
+  const i = cy * L.cols + cx; const tip = $('tip');
+  if (cx < 0 || cx >= L.cols || i < 0 || i >= L.cells) { tip.style.display = 'none'; return; }
+  const from = i * L.cellBytes, to = Math.min(L.size, from + L.cellBytes);
+  let t = `${fmt(from)} – ${fmt(to)}`;
+  if (snap && snap.freeKnown) { const f = b64(snap.freePct)[i]; t += ` · ${f}% free`; }
+  if (snap) { const s = ST[b64(snap.status)[i]]; if (s !== 'none') t += ` · ${s}`; if (b64(snap.restored)[i]) t += ' · restored'; }
+  tip.textContent = t; tip.style.display = 'block';
+  tip.style.left = Math.min(e.clientX - r.left + 12, r.width - 200) + 'px'; tip.style.top = (e.clientY - r.top + 14) + 'px';
+});
+cv.addEventListener('mouseleave', () => { $('tip').style.display = 'none'; });
+
+init().catch(e => { $('msg').textContent = 'Cannot reach the sdchk server: ' + e.message; });
+</script>
+</body>
+</html>

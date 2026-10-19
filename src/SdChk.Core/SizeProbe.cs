@@ -11,8 +11,64 @@ public enum Verdict
     Inconclusive,
 }
 
+public enum AreaKind
+{
+    Probe,
+    Flush,
+    Confirm,
+}
+
+public readonly record struct PlannedArea(Extent Extent, AreaKind Kind);
+
+public enum ProbePhase
+{
+    Write,
+    Validate,
+    Scan,
+    Refine,
+}
+
+/// <summary>Receives what the size check is about to do and has done. Callbacks may block (step mode) or throw to abort.</summary>
+public abstract class ProbeObserver
+{
+    /// <summary>Every area the check will write, known before anything is written.</summary>
+    public virtual void Planned(IReadOnlyList<PlannedArea> areas)
+    {
+    }
+
+    /// <summary>Called before any write to these extents (also for extents chosen later while refining the size).</summary>
+    public virtual void Protect(IReadOnlyList<Extent> extents)
+    {
+    }
+
+    public virtual void PhaseStart(ProbePhase phase)
+    {
+    }
+
+    public virtual void AreaWritten(PlannedArea area)
+    {
+    }
+
+    public virtual void AreaVerified(ProbeOutcome outcome)
+    {
+    }
+
+    /// <summary>Our data was found at <see cref="AliasHit.ReadOffset"/> although it was written for <see cref="AliasHit.FoundOffset"/>.</summary>
+    public virtual void AliasFound(AliasHit hit)
+    {
+    }
+}
+
+/// <summary>Saves originals into a <see cref="Journal"/> before the size check overwrites anything.</summary>
+public class JournalObserver(Journal journal, IBlockDevice device, CancellationToken cancel = default, Action<double>? progress = null) : ProbeObserver
+{
+    public override void Protect(IReadOnlyList<Extent> extents) => journal.Protect(device, extents, cancel, progress);
+}
+
 public sealed record SizeProbeOptions
 {
+    public ProbeObserver? Observer { get; init; }
+
     /// <summary>Size of each probe written to the card.</summary>
     public int ProbeBytes { get; init; } = 8 << 20;
 
@@ -135,19 +191,54 @@ public static class SizeProbe
 
         o.Log?.Invoke($"Size check: {plan.Count} probes of {o.ProbeBytes >> 20} MiB, salt {c.Salt:X16}");
 
+        var probeAreas = plan.Select(x => new Extent(x, o.ProbeBytes)).ToList();
+        if (o.CacheDefeatBytes > 0)
+        {
+            c.FlushGap = FindGap(c, probeAreas, o.CacheDefeatBytes);
+        }
+
+        if (o.ConfirmBytes > o.CacheDefeatBytes)
+        {
+            var blocked = probeAreas.Concat(c.FlushGap is { } f ? new[] { f } : Array.Empty<Extent>()).ToList();
+            for (long len = o.ConfirmBytes; len > o.CacheDefeatBytes && c.ConfirmGap is null; len /= 2)
+            {
+                c.ConfirmGap = FindGap(c, blocked, len);
+            }
+        }
+
+        var areas = probeAreas.Select(e => new PlannedArea(e, AreaKind.Probe)).ToList();
+        if (c.FlushGap is { } fg)
+        {
+            areas.Add(new PlannedArea(fg, AreaKind.Flush));
+        }
+
+        if (c.ConfirmGap is { } cg)
+        {
+            areas.Add(new PlannedArea(cg, AreaKind.Confirm));
+        }
+
+        o.Observer?.Planned(areas);
+        o.Observer?.Protect(areas.Select(a => a.Extent).ToList());
+
+        o.Observer?.PhaseStart(ProbePhase.Write);
         var writeFailed = new HashSet<long>();
         for (int i = 0; i < plan.Count; i++)
         {
             c.Cancel();
             o.Progress?.Invoke("Writing probes", (double)i / plan.Count);
-            if (!TryWrite(c, plan[i], o.ProbeBytes))
+            if (TryWrite(c, plan[i], o.ProbeBytes))
+            {
+                o.Observer?.AreaWritten(new PlannedArea(probeAreas[i], AreaKind.Probe));
+            }
+            else
             {
                 writeFailed.Add(plan[i]);
                 o.Log?.Invoke($"Write failed at {plan[i]}");
             }
         }
 
-        DefeatCache(c, plan);
+        DefeatCache(c, probeAreas);
+        o.Observer?.PhaseStart(ProbePhase.Validate);
         o.Log?.Invoke("Verifying probes (random-order reads)");
         var outcomes = VerifyAll(c, plan, writeFailed, "Verifying probes");
         if (o.ConfirmBytes > o.CacheDefeatBytes)
@@ -159,6 +250,7 @@ public static class SizeProbe
 
         if (o.AliasScan)
         {
+            o.Observer?.PhaseStart(ProbePhase.Scan);
             Scan(c, plan);
         }
 
@@ -172,7 +264,9 @@ public static class SizeProbe
         {
             c.Cancel();
             c.O.Progress?.Invoke(label, (double)i / plan.Count);
-            list.Add(VerifyProbe(c, plan[i], writeFailed.Contains(plan[i]), true));
+            var outcome = VerifyProbe(c, plan[i], writeFailed.Contains(plan[i]), true);
+            list.Add(outcome);
+            c.O.Observer?.AreaVerified(outcome);
         }
 
         return list;
@@ -181,22 +275,17 @@ public static class SizeProbe
     /// <summary>Flush the card's cache harder, then verify every probe again; a probe is good only if good both times.</summary>
     private static List<ProbeOutcome> ConfirmPass(Ctx c, List<long> plan, HashSet<long> writeFailed, List<ProbeOutcome> first)
     {
-        long len = c.O.ConfirmBytes;
-        long? gap = null;
-        while (len > c.O.CacheDefeatBytes && (gap = FindGap(c, plan, len)) is null)
-        {
-            len /= 2;
-        }
-
-        if (gap is null || len <= c.O.CacheDefeatBytes)
+        if (c.ConfirmGap is not { } gap)
         {
             c.Res.Notes.Add("Large cache check skipped: not enough free space for it.");
             return first;
         }
 
+        long len = gap.Length;
         c.O.Log?.Invoke($"Large cache check: writing {len >> 20} MiB, then verifying all probes again");
-        TryWrite(c, gap.Value, len);
-        c.FillerUsed.Add(gap.Value);
+        TryWrite(c, gap.Start, len);
+        c.O.Observer?.AreaWritten(new PlannedArea(gap, AreaKind.Confirm));
+        c.FillerUsed.Add(gap.Start);
         try
         {
             c.Dev.Flush();
@@ -335,10 +424,10 @@ public static class SizeProbe
         }
     }
 
-    private static long? FindGap(Ctx c, IEnumerable<long> probes, long length)
+    private static Extent? FindGap(Ctx c, IEnumerable<Extent> blockedAreas, long length)
     {
         long p = c.O.ProbeBytes;
-        var blocked = probes.Select(x => (Start: x, End: x + p)).OrderBy(x => x.Start).ToList();
+        var blocked = blockedAreas.OrderBy(x => x.Start).ToList();
         foreach (var e in c.Dev.UsableExtents)
         {
             long cursor = (e.Start + p - 1) / p * p;
@@ -347,7 +436,7 @@ public static class SizeProbe
                 var hit = blocked.FirstOrDefault(b => b.Start < cursor + length && b.End > cursor);
                 if (hit == default)
                 {
-                    return cursor;
+                    return new Extent(cursor, length);
                 }
 
                 cursor = (hit.End + p - 1) / p * p;
@@ -357,16 +446,32 @@ public static class SizeProbe
         return null;
     }
 
-    private static void DefeatCache(Ctx c, IEnumerable<long> probes)
+    private static void DefeatCache(Ctx c, IReadOnlyList<Extent> avoid)
     {
         if (c.FlushBytes > 0)
         {
-            long? gap = FindGap(c, probes, c.FlushBytes);
+            Extent? gap = null;
+            foreach (var planned in new[] { c.FlushGap, c.ConfirmGap })
+            {
+                if (planned is { } pg && pg.Length == c.FlushBytes && !avoid.Any(a => Extents.Overlaps(a, pg)))
+                {
+                    gap = pg;
+                    break;
+                }
+            }
+
+            if (gap is null && FindGap(c, avoid, c.FlushBytes) is { } found)
+            {
+                c.O.Observer?.Protect(new[] { found });
+                gap = found;
+            }
+
             if (gap is { } g)
             {
-                c.O.Log?.Invoke($"Flushing card write cache with {c.FlushBytes >> 20} MiB at {g}");
-                TryWrite(c, g, c.FlushBytes);
-                c.FillerUsed.Add(g);
+                c.O.Log?.Invoke($"Flushing card write cache with {c.FlushBytes >> 20} MiB at {g.Start}");
+                TryWrite(c, g.Start, c.FlushBytes);
+                c.O.Observer?.AreaWritten(new PlannedArea(g, AreaKind.Flush));
+                c.FillerUsed.Add(g.Start);
             }
             else
             {
@@ -439,6 +544,7 @@ public static class SizeProbe
     private static void AddHit(Ctx c, long readOffset, long found)
     {
         c.Res.AliasHitCount++;
+        c.O.Observer?.AliasFound(new AliasHit(readOffset, found));
         if (c.Res.AliasHits.Count < MaxAliasHitsKept)
         {
             c.Res.AliasHits.Add(new AliasHit(readOffset, found));
@@ -565,6 +671,7 @@ public static class SizeProbe
         long lo = below.Max() + p;
         long hi = firstBad;
         long resolution = p;
+        c.O.Observer?.PhaseStart(ProbePhase.Refine);
         o_log(c, $"Refining real size between {Fmt(lo)} and {Fmt(hi)}");
         while (hi - lo > resolution)
         {
@@ -594,9 +701,18 @@ public static class SizeProbe
 
     private static bool ProbeIsGood(Ctx c, long offset)
     {
+        var area = new Extent(offset, c.O.ProbeBytes);
+        c.O.Observer?.Protect(new[] { area });
         bool wrote = TryWrite(c, offset, c.O.ProbeBytes);
-        DefeatCache(c, new[] { offset });
-        return wrote && VerifyProbe(c, offset, false, false).IsGood;
+        if (wrote)
+        {
+            c.O.Observer?.AreaWritten(new PlannedArea(area, AreaKind.Probe));
+        }
+
+        DefeatCache(c, new[] { area });
+        var outcome = VerifyProbe(c, offset, false, false);
+        c.O.Observer?.AreaVerified(outcome);
+        return wrote && outcome.IsGood;
     }
 
     private static long Gcd(long a, long b)
@@ -633,6 +749,10 @@ public static class SizeProbe
         public List<long> FillerUsed { get; } = new();
 
         public long FlushBytes { get; set; } = o.CacheDefeatBytes;
+
+        public Extent? FlushGap { get; set; }
+
+        public Extent? ConfirmGap { get; set; }
 
         public long Gcd { get; set; }
 

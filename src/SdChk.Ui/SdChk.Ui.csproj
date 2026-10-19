@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>SdChk.Ui</RootNamespace>
+    <AssemblyName>SdChk.Ui</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\SdChk.Core\SdChk.Core.csproj" />
+    <ProjectReference Include="..\SdChk.Windows\SdChk.Windows.csproj" />
+    <EmbeddedResource Include="Web\index.html" LogicalName="index.html" />
+  </ItemGroup>
+</Project>

@@ -7,5 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="..\SdChk.Core\SdChk.Core.csproj" />
     <ProjectReference Include="..\SdChk.Windows\SdChk.Windows.csproj" />
+    <ProjectReference Include="..\SdChk.Ui\SdChk.Ui.csproj" />
   </ItemGroup>
 </Project>

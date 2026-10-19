@@ -16,7 +16,13 @@ Stage 1 acceptance (needs a real Windows machine and cards):
 3. Compare size result with H2testw/f3 and speed with CrystalDiskMark on the same card.
 4. Tune thresholds (probe size, scan stride, confirm size) from those runs.
 
-Deferred: full bad-sector scan (Stage 2), GUI with block map, Confidence/Empty-space modes, A1/A2 grading, real-size partition fix.
+Map UI prototype (delivered after Stage 1, protect mode from the ValiDrive review):
+- `Journal` (undo log on the PC, per-entry SHA-256, torn-tail tolerant, restore + verify), `SizeProbe` observer hooks (plan, protect, phases, per-area events), `MapSession` (staged flow with gates, cancel always restores), `SdChk.Ui` local web server (127.0.0.1, per-run token, Host check) with an embedded single-page map UI, `sdchk ui`.
+- Simulated cards hold "user files"; tests and the UI show that a wrap-around fake damages them without the journal and that they are intact after restore.
+- Verified: 50 unit tests; Playwright run of the whole flow in Chromium on three demo cards (screenshots in `docs/`).
+- Not verified: the real-drive path (Windows volume backend), long runs on real cards, journal size on 512 GB cards (about 1.3 GiB with the default 1 GiB cache check).
+
+Deferred: full bad-sector scan (Stage 2), speed test inside the UI, instant 576-point screen, A1/A2 grading, real-size partition fix, WinForms/WebView2 shell.
 
 ## ValiDrive review (from a summary pasted by the user; validrive.org itself is blocked from this session)
 Treat as secondhand. Described method: ~576 sample points spread evenly over the reported LBA range with random offsets; at each point read and save the original block, write unique data (seed + LBA), bypass caches, read back and compare, restore the original, record latency. Classes: valid / missing-or-wrapped / write-fail / read-error. Real size is the highest valid LBA; output is a valid/invalid map, latency stats and a trustworthy/suspect/fake verdict. Raw physical drive, admin, Windows, refuses fixed/system disks, power-loss warning.

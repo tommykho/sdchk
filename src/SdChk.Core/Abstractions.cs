@@ -45,3 +45,9 @@ public interface IBlockDevice : IDisposable
     /// <summary>Drop host-side caches between the write and verify phases (flush + reopen where possible).</summary>
     void ResetCache();
 }
+
+/// <summary>Implemented by simulated cards that can tell whether the owner's files survived.</summary>
+public interface IUserDataProbe
+{
+    int CountDamagedUserBlocks();
+}
