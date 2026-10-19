@@ -1,9 +1,19 @@
 name: Release
 
-# Push a tag such as v0.1.0 to build the Windows exe, smoke-test it on the runner and publish a GitHub release.
+# Push a tag such as v0.1.0, or run this workflow manually with a tag name, to build the Windows exe,
+# smoke-test it on the runner and publish a GitHub release (the tag is created at the built commit if missing).
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create, for example v0.1.0'
+        required: true
+        default: 'v0.1.0'
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -48,7 +58,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $name = "sdchk-$($env:GITHUB_REF_NAME)-win-x64"
+          $name = "sdchk-$($env:TAG)-win-x64"
           New-Item -ItemType Directory -Path $name | Out-Null
           Copy-Item out\sdchk.exe, README.md, LICENSE $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
@@ -59,9 +69,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = $env:GITHUB_REF_NAME
+          $tag = $env:TAG
           $notes = "docs/release-notes/$tag.md"
           if (-not (Test-Path $notes)) { $notes = $null }
-          $args = @('release', 'create', $tag, "sdchk-$tag-win-x64.zip", "sdchk-$tag-win-x64.zip.sha256", '--title', "sdchk $tag", '--prerelease')
+          $args = @('release', 'create', $tag, "sdchk-$tag-win-x64.zip", "sdchk-$tag-win-x64.zip.sha256", '--title', "sdchk $tag", '--prerelease', '--target', $env:GITHUB_SHA)
           if ($notes) { $args += @('--notes-file', $notes) } else { $args += '--generate-notes' }
           & gh @args
